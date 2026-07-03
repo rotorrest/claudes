@@ -54,7 +54,7 @@ import textwrap
 import threading
 import time
 
-__version__ = "0.5.1"
+__version__ = "0.5.2"
 GITHUB_REPO = "rotorrest/claude-monitor"
 
 SESSIONS_DIR = os.path.expanduser("~/.claude/sessions")
@@ -1152,6 +1152,15 @@ def watch_loop(interval):
     selected_pid = None
     mode = "list"       # "list" | "preview"
     preview_offset = 0
+    reload_pending = False
+    # auto-reload: si el binario en disco cambia (claudios update / brew
+    # upgrade), el watch se re-ejecuta solo — el proceso viejo no se queda
+    # corriendo código viejo
+    script_path = os.path.realpath(__file__)
+    try:
+        script_mtime = os.path.getmtime(script_path)
+    except OSError:
+        script_mtime = None
     threading.Thread(target=slow_loop, daemon=True).start()
 
     def read_key():
@@ -1188,6 +1197,13 @@ def watch_loop(interval):
             raw[3] &= ~(termios.ICANON | termios.ECHO)
             termios.tcsetattr(fd, termios.TCSANOW, raw)
         while True:
+            try:
+                if (script_mtime
+                        and os.path.getmtime(script_path) > script_mtime):
+                    reload_pending = True
+                    break
+            except OSError:
+                pass
             width, height = term_size()
             rows = collect()
             visible = {r["pid"] for r in rows}
@@ -1282,6 +1298,9 @@ def watch_loop(interval):
             termios.tcsetattr(fd, termios.TCSANOW, old_attrs)
         sys.stdout.write("\x1b[?1049l\x1b[?25h")
         sys.stdout.flush()
+    if reload_pending:
+        # re-ejecutarse con la versión nueva, mismos argumentos
+        os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
 def main():

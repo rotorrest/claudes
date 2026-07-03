@@ -107,7 +107,7 @@ Add to `~/.claude/settings.json` (merge with your existing hooks, don't replace 
 
 ## Auto-update
 
-- `claudios update` downloads the latest GitHub release, **verifies every file against `SHA256SUMS`** and replaces itself atomically.
+- `claudios update` downloads the latest GitHub release, **verifies every file against `SHA256SUMS`** and replaces itself atomically. Running watch instances detect the new binary and **restart themselves within seconds** — no stale monitors.
 - Watch mode checks (at most once a day) whether a new version exists and says so in the footer.
 - `CLAUDIOS_NO_UPDATE_CHECK=1` turns the check off. If you installed via brew you may prefer `brew upgrade claude-monitor`.
 
