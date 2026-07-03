@@ -26,10 +26,10 @@ curl -fsSL https://raw.githubusercontent.com/rotorrest/claude-monitor/main/insta
 or with Homebrew:
 
 ```bash
-brew tap rotorrest/tap
-brew trust rotorrest/tap   # modern Homebrew asks you to trust third-party taps
-brew install claude-monitor
+brew install rotorrest/tap/claude-monitor
 ```
+
+If Homebrew complains about an untrusted tap, run `brew trust rotorrest/tap` and retry.
 
 The installer verifies the release's SHA256 checksums, installs `claudios` + `claude-notify` into `~/.local/bin` and creates the `claude-monitor` alias. Zero dependencies: system Python 3 and nothing else.
 
