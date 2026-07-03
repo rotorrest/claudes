@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-y-seguridad:
+    name: Lint + análisis de seguridad
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar analizadores
+        run: python -m pip install --quiet ruff bandit
+      - name: ruff (lint)
+        run: ruff check src/ .github/scripts/
+      - name: bandit (SAST)
+        run: bandit -ll -r src/
+      - name: Guardia stdlib-only (supply chain)
+        run: python .github/scripts/stdlib_guard.py src/claudes.py src/claude_notify.py
+      - name: Compilación
+        run: python -m py_compile src/claudes.py src/claude_notify.py
+      - name: shellcheck (installer)
+        run: shellcheck install.sh
+
+  smoke-macos:
+    name: Smoke test (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: --version / --help
+        run: |
+          python3 src/claudes.py --version
+          python3 src/claudes.py --help
+      - name: snapshot y --json corren sin sesiones
+        run: |
+          python3 src/claudes.py
+          python3 src/claudes.py --json | python3 -c "import json,sys; json.load(sys.stdin)"
+      - name: claude-notify tolera stop encadenado y JSON inválido
+        run: |
+          echo '{"hook_event_name":"Stop","stop_hook_active":true}' | python3 src/claude_notify.py
+          echo 'no es json' | python3 src/claude_notify.py

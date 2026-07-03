@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  security-gate:
+    name: Gate de seguridad (bloquea el release)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar analizadores
+        run: python -m pip install --quiet ruff bandit
+      - name: ruff (lint)
+        run: ruff check src/
+      - name: bandit (SAST)
+        run: bandit -ll -r src/
+      - name: Guardia stdlib-only (supply chain)
+        run: python .github/scripts/stdlib_guard.py src/claudes.py src/claude_notify.py
+      - name: Compilación
+        run: python -m py_compile src/claudes.py src/claude_notify.py
+      - name: El tag debe coincidir con __version__
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          ver="$(python -c "import re;print(re.search(r'__version__ = \"([^\"]+)\"', open('src/claudes.py').read()).group(1))")"
+          if [ "$tag" != "$ver" ]; then
+            echo "::error::el tag v$tag no coincide con __version__ = $ver"
+            exit 1
+          fi
+
+  publish:
+    name: Build + publicar distribuible
+    needs: security-gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (scripts ejecutables + tarball + checksums)
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          install -m 0755 src/claudes.py dist/claudes
+          install -m 0755 src/claude_notify.py dist/claude-notify
+          install -m 0755 install.sh dist/install.sh
+          cp README.md LICENSE dist/
+          tar -czf "dist/claudes-$ver.tar.gz" -C dist claudes claude-notify install.sh README.md LICENSE
+          (cd dist && sha256sum claudes claude-notify install.sh "claudes-$ver.tar.gz" > SHA256SUMS)
+          cat dist/SHA256SUMS
+      - name: Publicar release con assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/claudes dist/claude-notify dist/install.sh \
+            dist/claudes-*.tar.gz dist/SHA256SUMS \
+            --title "claudes $GITHUB_REF_NAME" --generate-notes
+      - name: Bump de la fórmula en rotorrest/homebrew-tap
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "::notice::sin secret TAP_GITHUB_TOKEN — bump manual de la fórmula (ver README del tap)"
+            exit 0
+          fi
+          ver="${GITHUB_REF_NAME#v}"
+          sha="$(grep "claudes-$ver.tar.gz" dist/SHA256SUMS | cut -d' ' -f1)"
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/rotorrest/homebrew-tap.git" tap
+          cd tap
+          sed -i -E "s|releases/download/v[0-9.]+/claudes-[0-9.]+\.tar\.gz|releases/download/v$ver/claudes-$ver.tar.gz|" Formula/claudes.rb
+          sed -i -E "s|sha256 \"[0-9a-f]{64}\"|sha256 \"$sha\"|" Formula/claudes.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "claudes $ver"
+          git push
